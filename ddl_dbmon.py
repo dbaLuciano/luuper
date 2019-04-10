@@ -387,7 +387,18 @@ def ddl_consulta(monitoramento):
                   ,PROFILE
                   ,COMMON
                   ,LAST_LOGIN 
-               from cdb_users 
+               from cdb_users
+        """
+    if monitoramento=="SegInfo_CkPrograms":
+        str="""select distinct USERNAME, 
+                      OSUSER, 
+                      MACHINE, 
+                      PROGRAM, 
+                      MODULE, 
+                      ACTION
+               FROM GV$SESSION
+               WHERE TYPE='USER'
+               AND USERNAME NOT IN ('SYS','SYSTEM','DBSNMP','SYSRAC','PUBLIC')
         """
     #Retorno da consulta
     return(str)
@@ -754,6 +765,44 @@ def ddl_merge(monitoramento):
                     ,STAGE.NAME
                     ,STAGE.STATUS)
         """
+    if monitoramento=="SegInfo_CkPrograms":
+        str="""
+        MERGE INTO ORA_SI_SESSION_PROGRAM T
+        USING (SELECT * FROM Stage_SegInfo_CkPrograms
+               WHERE TARGET=:vTARGET) STAGE
+        ON (  T.TARGET = STAGE.TARGET
+              AND T.USERNAME = STAGE.USERNAME
+              AND T.OSUSER = STAGE.OSUSER
+              AND T.MACHINE = STAGE.MACHINE
+              AND T.PROGRAM = STAGE.PROGRAM
+              AND T.MODULE = STAGE.MODULE
+              AND T.ACTION = STAGE.ACTION  )
+        WHEN MATCHED THEN
+           UPDATE SET T.DATA_ULTIMA_COLETA = SYSDATE
+                      ,T.QUANTIDADE=QUANTIDADE+1
+           WHERE T.TARGET=:vTARGET
+        WHEN NOT MATCHED THEN
+            INSERT (TARGET,
+                   USERNAME,
+                   OSUSER,
+                   MACHINE,
+                   PROGRAM,
+                   MODULE,
+                   ACTION,
+                   DATA_COLETA,
+                   DATA_ULTIMA_COLETA,
+                   QUANTIDADE)
+            VALUES (STAGE.TARGET,
+                    STAGE.USERNAME,
+                    STAGE.OSUSER,
+                    STAGE.MACHINE,
+                    STAGE.PROGRAM,
+                    STAGE.MODULE,
+                    STAGE.ACTION,
+                    SYSDATE,
+                    SYSDATE,
+                    1)"""
+
     if monitoramento=="database_info":
         str="""
         MERGE INTO ORA_DATABASE T
@@ -767,6 +816,7 @@ def ddl_merge(monitoramento):
                       ,ULTIMA_COLETA=SYSDATE
                       ,VERSAO=STAGE.VERSAO
                       ,VERSAO_COMPLETA=STAGE.VERSAO_COMPLETA
+                      ,PRODUTO=STAGE.PRODUTO
                       ,BUNDLE_DATA=STAGE.BUNDLE_DATA
                       ,BUNDLE_ACTION=STAGE.BUNDLE_ACTION
                       ,BUNDLE_INFORMACAO=STAGE.BUNDLE_INFORMACAO

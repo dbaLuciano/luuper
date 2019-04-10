@@ -587,9 +587,7 @@ def get_database_info(target,sq):
     conn_dbmon = dbmon.conn
     cur_dbmon = dbmon.new_cursor_dbmon()
 
-    #Fazer limpeza nas tabelas de stage para carregar novos dados
-    cur_dbmon.execute("""delete from STAGE_DATABASE where target=:vTARGET""",vTARGET=target)
-    conn_dbmon.commit()
+    dbmon.limpa_stage(TARGET,'database')
     try:
         #Inicializando as variaveis
         str_produto            =""
@@ -617,7 +615,7 @@ def get_database_info(target,sq):
                 str_bundle_informacao=r_db_info[2]
         #Comentado em 10/09/2018 - Sumir com a mensagem do output
         #print("Versao coletada: " + str(str_versao) )
-        if str(str_versao) == "12":
+        if str(str_versao) >= "12":
             cur_target.execute(ddl.ddl_consulta("database_info_12c"))
         else:
             cur_target.execute(ddl.ddl_consulta("database_info"))
@@ -654,9 +652,6 @@ def get_database_info(target,sq):
                                 ,CDB=row[20]
                              )
         conn_dbmon.commit()
-        #Coletando diferencas e gerando alarmes
-
-        #Avaliar se o registro existe em ora_database para verificar as diferencas
         
         cur_dbmon.execute("select count(1) from ORA_database where target=:vTARGET",vTARGET=TARGET)
         for row in cur_dbmon.fetchall():
@@ -925,6 +920,31 @@ def get_users(target,sq):
         conn_dbmon.close()
         return("FALHA")
 
+def get_SegInfo_CkPrograms(target):
+    """Procedimento da seguranca para coleta de sessoes com programas de manipulação de dados"""
+    TARGET = target.upper()
+    ora_target = class_target(target.upper())
+    dbmon = class_dbmon()
+    conn_target = ora_target.conn
+    try:
+        #Disparo da consulta
+        cur_target = ora_target.get_cursor()
+        cur_target.execute(ddl.ddl_consulta('SegInfo_CkPrograms'))
+        status_processa=dbmon.processa_rs(ora_target.target,'SegInfo_CkPrograms',cur_target)
+        if status_processa == 1:
+            print("  Procedimento para coleta de programas indevidos da SI em " +TARGET+ ", realizado com sucesso")
+        else:
+            print("  [ERRO] Erro ao processar programas indevidos")
+        
+    except cx_Oracle.DatabaseError as e:
+        error, = e.args
+        #Gravando erro target,alarme,descricao
+        print("!!!!  Erro registrado em " + TARGET + " - ORA-" + str(error.code) + str(error) )
+        cur_dbmon.close()
+        conn_dbmon.rollback()
+        conn_dbmon.close()
+        return("FALHA")
+
 def dispara_coleta(target,monitoramento,seq):
     erro=0
     id_checklist=int(seq)
@@ -1009,3 +1029,9 @@ def dispara_coleta(target,monitoramento,seq):
         proc=get_users(target,seq)
         if proc=="FALHA":
               print("[ERRO]["+monitoramento+"]"+"["+target+"]")
+
+    #Coleta Seg da Informacao
+    if monitoramento=="SegInfo_CkPrograms":
+        proc=get_SegInfo_CkPrograms(target)
+        if proc=="FALHA":
+            print("[ERRO]["+monitoramento+"]"+"["+target+"]")
