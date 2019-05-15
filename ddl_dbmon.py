@@ -176,6 +176,19 @@ def ddl_consulta(monitoramento):
                              and status='COMPLETED'
  	                         )
         """
+    if monitoramento=="sequence":
+        str="""select SEQUENCE_OWNER,--0 
+                      SEQUENCE_NAME, --1
+                      CYCLE_FLAG, --2
+                      MAX_VALUE, --3
+                      INCREMENT_BY, --4
+                      CACHE_SIZE, --5
+                      LAST_NUMBER, --6
+                      ROUND(LAST_NUMBER/(MAX_VALUE/100),2) as "%USADO", --7
+                      100-ROUND(LAST_NUMBER/(MAX_VALUE/100),2) as "%LIVRE" --8
+               from dba_sequences where sequence_owner not in ('SYS','SYSTEM','SYSAUX','XDB','WMSYS','SQLTXPLAIN',
+                                                              'SYSMAN','OLAPSYS','ORDDATA','MDSYS','DBSNMP','EXFSYS','CTXSYS')
+        """
     if monitoramento=="dataguard_info":
         str="""SELECT DEST_ID, --0
                       DESTINATION, --1
@@ -395,7 +408,8 @@ def ddl_consulta(monitoramento):
                       MACHINE, 
                       PROGRAM, 
                       MODULE, 
-                      ACTION
+                      ACTION,
+                      SERVICE_NAME
                FROM GV$SESSION
                WHERE TYPE='USER'
                AND USERNAME NOT IN ('SYS','SYSTEM','DBSNMP','SYSRAC','PUBLIC')
@@ -776,7 +790,8 @@ def ddl_merge(monitoramento):
               AND T.MACHINE = STAGE.MACHINE
               AND T.PROGRAM = STAGE.PROGRAM
               AND T.MODULE = STAGE.MODULE
-              AND T.ACTION = STAGE.ACTION  )
+              AND T.ACTION = STAGE.ACTION
+              AND T.SERVICE_NAME = STAGE.SERVICE_NAME  )
         WHEN MATCHED THEN
            UPDATE SET T.DATA_ULTIMA_COLETA = SYSDATE
                       ,T.QUANTIDADE=QUANTIDADE+1
@@ -789,6 +804,7 @@ def ddl_merge(monitoramento):
                    PROGRAM,
                    MODULE,
                    ACTION,
+                   SERVICE_NAME,
                    DATA_COLETA,
                    DATA_ULTIMA_COLETA,
                    QUANTIDADE)
@@ -799,6 +815,7 @@ def ddl_merge(monitoramento):
                     STAGE.PROGRAM,
                     STAGE.MODULE,
                     STAGE.ACTION,
+                    STAGE.SERVICE_NAME,
                     SYSDATE,
                     SYSDATE,
                     1)"""

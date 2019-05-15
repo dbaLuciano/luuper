@@ -1,6 +1,6 @@
 import cx_Oracle
 import ddl_dbmon as ddl
-
+import alarme
 class dbmon():
     def __init__(self):
        #Definicoes de conexoes
@@ -96,23 +96,61 @@ class dbmon():
                                         MACHINE,
                                         PROGRAM,
                                         MODULE,
-                                        ACTION) VALUES (:vTARGET,
+                                        ACTION,
+                                        SERVICE_NAME) VALUES (:vTARGET,
                                                         :vUSERNAME,
                                                         nvl(:vOSUSER,'-'),
                                                         nvl(:vMACHINE,'-'),
                                                         nvl(:vPROGRAM,'-'),
                                                         nvl(:vMODULE,'-'),
-                                                        nvl(:vACTION,'-') )""",vTARGET=TARGET
+                                                        nvl(:vACTION,'-'),
+                                                        nvl(:vSERVICE_NAME,'-') )""",vTARGET=TARGET
                                                                     ,vUSERNAME=row[0]
                                                                     ,vOSUSER=row[1]
                                                                     ,vMACHINE=row[2]
                                                                     ,vPROGRAM=row[3]
                                                                     ,vMODULE=row[4]
-                                                                    ,vACTION=row[5])
+                                                                    ,vACTION=row[5]
+                                                                    ,vSERVICE_NAME=row[6])
                self.conn.commit()
                cursor.execute(ddl.ddl_merge('SegInfo_CkPrograms'),vTARGET=TARGET)
                self.conn.commit()
                return(1)
+            ##Processamento de RecordSet de Sequencias
+           if rsname=="sequence":
+               cursor=self.new_cursor_dbmon()
+               cursor.execute("delete from ORA_SEQUENCE where target=:vTARGET",vTARGET=TARGET)
+               self.conn.commit()
+               for row in recordSet.fetchall():
+                   cursor.execute("""INSERT INTO ORA_SEQUENCE (TARGET, DATA_COLETA, 
+	                                                           SEQUENCE_OWNER, SEQUENCE_NAME, 
+	                                                           CYCLE_FLAG, MAX_VALUE, INCREMENT_BY,
+	                                                           CACHE_SIZE, LAST_NUMBER, PERC_USADO, PERC_LIVRE ) VALUES 
+                                                               (:vTARGET, sysdate, :vSEQUENCE_OWNER, :vSEQUENCE_NAME, 
+                                                                :vCYCLE_FLAG, :vMAX_VALUE, :vINCREMENT_BY,
+	                                                            :vCACHE_SIZE, :vLAST_NUMBER, :vPERC_USADO, :vPERC_LIVRE)""",
+                                                                vTARGET=TARGET, 
+                                                                vSEQUENCE_OWNER=row[0], 
+                                                                vSEQUENCE_NAME=row[1], 
+                                                                vCYCLE_FLAG=row[2], 
+                                                                vMAX_VALUE=row[3], 
+                                                                vINCREMENT_BY=row[4],
+	                                                            vCACHE_SIZE=row[5], 
+                                                                vLAST_NUMBER=row[6], 
+                                                                vPERC_USADO=row[7], 
+                                                                vPERC_LIVRE=row[8])
+               self.conn.commit()
+               #Gerando os alertas
+               cursor.execute("""select sequence_owner, sequence_name, to_char(perc_usado) || '%' as perc_usado 
+                               from ORA_SEQUENCE 
+                               where perc_usado >= 75
+                               and sequence_owner||'.'||sequence_name not in (select upper(valor) from TARGET_CONFIG_THRESHOLD
+                                                                              where target=:vTARGET and THRESHOLD='sequence' and tipo='disable' ) 
+                               and target=:vTARGET """,vTARGET=TARGET)
+               for row in cursor.fetchall():
+                   alarme.grava_alarme(TARGET,"CHECK_SEQUENCE",'Avaliar a sequence ' + row[0] + '.' + row[1] + ' pois esta com ' + row[2] + ' de utilizacao.' )
+               return(1)
+
         except cx_Oracle.DatabaseError as e:
            error, = e.args
            #Gravando erro target,alarme,descricao
@@ -136,7 +174,7 @@ class dbmon():
 
     def build_inicial(self,TARGET,build):
         """ Estagio inicial para processamento de dados de tablespaces """
-        if build=="tablespace_dados"
+        if build=="tablespace_dados":
            try:
               cursor = self.new_cursor_dbmon()
               cursor.execute("insert into ora_h_tablespace select * from ora_tablespace where target=:vTARGET",vTARGET=TARGET)

@@ -30,6 +30,7 @@ def get_tablespace_dados(target,sq):
     conn_dbmon = dbmon.conn
     cur_dbmon = dbmon.new_cursor_dbmon()
     try:
+        dbmon.build_inicial(TARGET,'tablespace_dados')
         t = threading.Timer(180,conn_target.cancel)
         t.start()
         if ora_target.versao_bd >= "12":
@@ -766,6 +767,55 @@ def get_database_services(target,sq):
         conn_dbmon.close()
         return("FALHA")
 
+
+def get_database_instance_osstats(target,sq):
+    """Modulo DBMON - Coleta de informacoes adicionais do servidor e instancia"""
+    monit="instance_osstat"
+    TARGET = target.upper()
+    ora_target = class_target(target.upper())
+    dbmon = class_dbmon()
+    conn_target = ora_target.conn
+    cur_target = ora_target.get_cursor()
+    conn_dbmon = dbmon.conn
+    cur_dbmon = dbmon.new_cursor_dbmon()
+    try:
+        cur_dbmon.execute("delete from ORA_OSSTAT where target=:vTARGET",vTARGET=TARGET)
+        conn_dbmon.commit()
+        #Coletando informacoes do target
+        if ora_target.versao_bd=='10':
+           cur_target.execute("select inst_id, stat_name, value, osstat_id, '-' from gv$osstat")
+        else:
+           cur_target.execute("select inst_id, stat_name, value, osstat_id, comments from gv$osstat where cumulative='NO'")
+        for row in cur_target.fetchall():
+            cur_dbmon.execute("""insert into ORA_OSSTAT (TARGET,
+                                                                  DATA_COLETA,
+                                                                  INST_ID, 
+                                                                  STAT_NAME, 
+                                                                  VALUE, 
+                                                                  OSSTAT_ID, 
+                                                                  COMMENTS ) VALUES (:vTARGET,
+                                                                                     sysdate,
+                                                                                     :vINST_ID,
+                                                                                     :vSTAT_NAME,
+                                                                                     :vVALUE,
+                                                                                     :vOSSTAT_ID,
+                                                                                     :vCOMMENTS)""",vTARGET=TARGET
+                                                                                                   ,vINST_ID=row[0]
+                                                                                                   ,vSTAT_NAME=row[1]
+                                                                                                   ,vVALUE=row[2]
+                                                                                                   ,vOSSTAT_ID=row[3]
+                                                                                                   ,vCOMMENTS=row[4])
+            conn_dbmon.commit()
+    except cx_Oracle.DatabaseError as e:
+        error, = e.args
+        #Gravando erro target,alarme,descricao
+        print("!!!!  Erro registrado durante a coleta [instance_osstat] no " + TARGET + "-> " + str(error.code) )
+        cur_dbmon.close()
+        conn_dbmon.rollback()
+        conn_dbmon.close()
+        return("FALHA")
+    
+
 def get_database_instance(target,sq):
     """Modulo DBMON - Coleta de informacoes da instancia """
     monit="instance_info"
@@ -945,6 +995,31 @@ def get_SegInfo_CkPrograms(target):
         conn_dbmon.close()
         return("FALHA")
 
+def get_sequence(target,sq):
+    """Procedimento da seguranca para coleta de sessoes com programas de manipulacao de dados"""
+    TARGET = target.upper()
+    ora_target = class_target(target.upper())
+    dbmon = class_dbmon()
+    conn_target = ora_target.conn
+    try:
+        #Disparo da consulta
+        cur_target = ora_target.get_cursor()
+        cur_target.execute(ddl.ddl_consulta('sequence'))
+        status_processa=dbmon.processa_rs(ora_target.target,'sequence',cur_target)
+        if status_processa == 1:
+            print("  Procedimento para coleta de sequencias em " +TARGET+ ", realizado com sucesso.")
+        else:
+            print("  [ERRO] Erro ao processar programas indevidos.")
+        
+    except cx_Oracle.DatabaseError as e:
+        error, = e.args
+        #Gravando erro target,alarme,descricao
+        print("!!!!  Erro registrado em " + TARGET + " - ORA-" + str(error.code) + str(error) )
+        cur_dbmon.close()
+        conn_dbmon.rollback()
+        conn_dbmon.close()
+        return("FALHA")
+
 def dispara_coleta(target,monitoramento,seq):
     erro=0
     id_checklist=int(seq)
@@ -1033,5 +1108,15 @@ def dispara_coleta(target,monitoramento,seq):
     #Coleta Seg da Informacao
     if monitoramento=="SegInfo_CkPrograms":
         proc=get_SegInfo_CkPrograms(target)
+        if proc=="FALHA":
+            print("[ERRO]["+monitoramento+"]"+"["+target+"]")
+
+    if monitoramento=="database_instance_osstats":
+        proc=get_database_instance_osstats(target,seq)
+        if proc=="FALHA":
+            print("[ERRO]["+monitoramento+"]"+"["+target+"]")
+
+    if monitoramento=="sequence":
+        proc=get_sequence(target,seq)
         if proc=="FALHA":
             print("[ERRO]["+monitoramento+"]"+"["+target+"]")
